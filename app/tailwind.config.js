@@ -1,0 +1,152 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: ["class"],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive) / <alpha-value>)",
+          foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        sidebar: {
+          DEFAULT: "hsl(var(--sidebar-background))",
+          foreground: "hsl(var(--sidebar-foreground))",
+          primary: "hsl(var(--sidebar-primary))",
+          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
+          accent: "hsl(var(--sidebar-accent))",
+          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
+          border: "hsl(var(--sidebar-border))",
+          ring: "hsl(var(--sidebar-ring))",
+        },
+        'bg-base': '#0A0B0F',
+        'bg-surface': '#111218',
+        'bg-surface-raised': '#181920',
+        'bg-surface-hover': '#1E1F28',
+        'border-default': '#23242D',
+        'border-hover': '#2E2F3A',
+        'text-primary': '#F0F1F5',
+        'text-secondary': '#8B8D99',
+        'text-muted': '#4F515E',
+        'text-inverse': '#0A0B0F',
+        'accent-primary': '#7C5CFF',
+        'accent-primary-light': '#9B82FF',
+        'risk-safe': '#22C55E',
+        'risk-warn': '#F59E0B',
+        'risk-danger': '#EF4444',
+        'risk-info': '#3B82F6',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
+      fontSize: {
+        'display-xl': ['72px', { lineHeight: '1.0', letterSpacing: '-0.03em', fontWeight: '800' }],
+        'display-lg': ['56px', { lineHeight: '1.05', letterSpacing: '-0.03em', fontWeight: '800' }],
+        'display-md': ['42px', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '700' }],
+        'heading-xl': ['32px', { lineHeight: '1.15', letterSpacing: '-0.02em', fontWeight: '700' }],
+        'heading-lg': ['24px', { lineHeight: '1.2', letterSpacing: '-0.01em', fontWeight: '700' }],
+        'heading-md': ['20px', { lineHeight: '1.25', letterSpacing: '-0.01em', fontWeight: '600' }],
+        'body-lg': ['18px', { lineHeight: '1.6', fontWeight: '400' }],
+        'body': ['16px', { lineHeight: '1.6', fontWeight: '400' }],
+        'body-sm': ['14px', { lineHeight: '1.5', fontWeight: '400' }],
+        'caption': ['12px', { lineHeight: '1.4', letterSpacing: '0.02em', fontWeight: '500' }],
+        'metric': ['48px', { lineHeight: '1.0', letterSpacing: '-0.03em', fontWeight: '800' }],
+        'metric-sm': ['28px', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '700' }],
+      },
+      borderRadius: {
+        xl: "calc(var(--radius) + 4px)",
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+        xs: "calc(var(--radius) - 6px)",
+        'card': '14px',
+        'card-sm': '10px',
+        'button': '10px',
+        'badge': '6px',
+      },
+      maxWidth: {
+        'content': '1280px',
+      },
+      spacing: {
+        'sidebar': '260px',
+      },
+      boxShadow: {
+        xs: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+        'card-hover': '0 8px 32px rgba(0,0,0,0.3)',
+        'feature-hover': '0 12px 40px rgba(0,0,0,0.3)',
+        'glow-primary': '0 0 20px rgba(124,92,255,0.3)',
+        'hero-mockup': '0 40px 80px rgba(0,0,0,0.5), 0 0 60px rgba(124,92,255,0.1)',
+      },
+      keyframes: {
+        "accordion-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
+        "caret-blink": {
+          "0%,70%,100%": { opacity: "1" },
+          "20%,50%": { opacity: "0" },
+        },
+        "float": {
+          "0%, 100%": { transform: "translateY(0px)" },
+          "50%": { transform: "translateY(-8px)" },
+        },
+        "pulse-dot": {
+          "0%, 100%": { opacity: "0.3" },
+          "50%": { opacity: "1" },
+        },
+        "gradient-orb": {
+          "0%, 100%": { transform: "scale(1)" },
+          "50%": { transform: "scale(1.05)" },
+        },
+        "shimmer": {
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+        "caret-blink": "caret-blink 1.25s ease-out infinite",
+        "float": "float 6s ease-in-out infinite",
+        "pulse-dot": "pulse-dot 1.5s ease-in-out infinite",
+        "gradient-orb": "gradient-orb 8s ease-in-out infinite",
+        "shimmer": "shimmer 1.5s infinite linear",
+      },
+    },
+  },
+  plugins: [require("tailwindcss-animate")],
+}

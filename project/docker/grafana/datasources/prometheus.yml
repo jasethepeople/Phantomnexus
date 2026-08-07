@@ -1,0 +1,78 @@
+# =============================================================================
+# YouTube Sentinel - Grafana Datasource Provisioning
+# =============================================================================
+# Auto-provisions the Prometheus datasource for Grafana dashboards.
+# Placed in /etc/grafana/provisioning/datasources/ on container startup.
+#
+# Features:
+#   - Prometheus with default alerting
+#   - Annotation support for deployment markers
+#   - Query timeout and caching configuration
+# =============================================================================
+
+apiVersion: 1
+
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    typeName: Prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: sentinel-prometheus
+    orgId: 1
+    isDefault: true
+    editable: false
+    basicAuth: false
+    withCredentials: false
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: "2.48.0"
+      cacheLevel: High
+      incrementalQuerying: true
+      incrementalQueryOverlapWindow: 10m
+      queryTimeout: 60s
+      timeInterval: "15s"
+      # Alerting configuration
+      alertmanagerUid: ""
+      # Exemplar configuration (for trace correlation)
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: sentinel-tempo
+          urlDisplayLabel: "Trace"
+      # Derived fields for log correlation
+      derivedFields:
+        - name: "Trace ID"
+          matcherRegex: "trace_id[=:]([\\w]+)"
+          url: "$$${__value.raw}"
+          datasourceUid: sentinel-tempo
+    secureJsonData: {}
+    version: 1
+
+  # Optional: Loki for log aggregation (future)
+  # - name: Loki
+  #   type: loki
+  #   url: http://loki:3100
+  #   uid: sentinel-loki
+  #   isDefault: false
+  #   editable: false
+  #   jsonData:
+  #     maxLines: 1000
+  #     derivedFields:
+  #       - name: "Trace ID"
+  #         matcherRegex: "trace_id[=:]([\\w]+)"
+  #         url: "$$${__value.raw}"
+  #         datasourceUid: sentinel-tempo
+
+  # Optional: Tempo for distributed tracing (future)
+  # - name: Tempo
+  #   type: tempo
+  #   url: http://tempo:3200
+  #   uid: sentinel-tempo
+  #   isDefault: false
+  #   editable: false

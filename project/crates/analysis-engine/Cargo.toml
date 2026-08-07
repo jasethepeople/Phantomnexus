@@ -1,0 +1,42 @@
+[package]
+name = "analysis-engine"
+version = "0.1.0"
+edition = "2021"
+authors = ["YouTube Sentinel Team"]
+description = "Multi-modal AI analysis engine for video, audio, and metadata"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/youtube-sentinel/sentinel"
+
+[dependencies]
+# Internal dependencies
+sentinel-core = { path = "../sentinel-core" }
+frame-extractor = { path = "../frame-extractor" }
+
+# Async runtime
+tokio = { version = "1.38", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+# Error handling
+thiserror = "1.0"
+
+# Unique identifiers
+uuid = { version = "1.9", features = ["v4", "serde"] }
+
+# Logging and tracing
+tracing = "0.1"
+
+# Async traits
+async-trait = "0.1"
+
+# Pattern matching
+regex = "1.10"
+
+# Numerical computing
+ndarray = { version = "0.15", features = ["serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+serde_json = "1.0"
+tempfile = "3.10"

@@ -1,0 +1,42 @@
+[package]
+name = "grpc-server"
+version = "0.1.0"
+edition = "2021"
+authors = ["YouTube Sentinel Team"]
+description = "gRPC server for YouTube Sentinel analysis pipeline"
+license = "MIT"
+
+[dependencies]
+sentinel-core = { path = "../sentinel-core" }
+frame-extractor = { path = "../frame-extractor" }
+analysis-engine = { path = "../analysis-engine" }
+policy-engine = { path = "../policy-engine" }
+synthesis = { path = "../synthesis" }
+autofix = { path = "../autofix" }
+
+anyhow = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+tonic = "0.11"
+prost = "0.12"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dashmap = "5"
+tokio-stream = "0.1"
+futures = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+http = "1"
+hyper = "1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[[bin]]
+name = "grpc-server"
+path = "src/main.rs"

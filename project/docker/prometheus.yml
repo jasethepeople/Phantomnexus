@@ -1,0 +1,192 @@
+# =============================================================================
+# YouTube Sentinel - Prometheus Configuration
+# =============================================================================
+# Scraping configuration for all Sentinel services.
+# Each service exposes a /metrics endpoint with application-specific metrics.
+#
+# Services monitored:
+#   - api (Go API): Port 8081
+#   - analysis (Rust gRPC): Port 8082
+#   - worker (Go Worker): Port 8083
+#   - redis (Redis): Port 6379
+#   - nginx (Nginx): Port 80
+#   - prometheus (Self): Port 9090
+#   - grafana (Grafana): Port 3000
+#
+# Reload: curl -X POST http://localhost:9090/-/reload
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: sentinel
+    environment: production
+    replica: '{{.ExternalURL}}'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+      # Add alertmanager targets here:
+      # - alertmanager:9093
+
+# Rule files for alerting
+rule_files:
+  # - "rules/*.yml"
+  # - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+
+  # ---------------------------------------------------------------
+  # Prometheus self-monitoring
+  # ---------------------------------------------------------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # ---------------------------------------------------------------
+  # Go API Service
+  # ---------------------------------------------------------------
+  - job_name: 'sentinel-api'
+    static_configs:
+      - targets: ['api:8081']
+        labels:
+          service: api
+          language: go
+          version: '1.0.0'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    scheme: http
+    # Relabel to add instance metadata
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ---------------------------------------------------------------
+  # Rust Analysis Service
+  # ---------------------------------------------------------------
+  - job_name: 'sentinel-analysis'
+    static_configs:
+      - targets: ['analysis:8082']
+        labels:
+          service: analysis
+          language: rust
+          gpu_enabled: 'true'
+          version: '1.0.0'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    scheme: http
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ---------------------------------------------------------------
+  # Go Worker Service
+  # ---------------------------------------------------------------
+  - job_name: 'sentinel-worker'
+    static_configs:
+      - targets: ['worker:8083']
+        labels:
+          service: worker
+          language: go
+          replicas: '2'
+          version: '1.0.0'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    scheme: http
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ---------------------------------------------------------------
+  # Redis Exporter
+  # ---------------------------------------------------------------
+  - job_name: 'sentinel-redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: redis
+          role: cache
+          version: '7.x'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    scheme: http
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ---------------------------------------------------------------
+  # Nginx
+  # ---------------------------------------------------------------
+  - job_name: 'sentinel-nginx'
+    static_configs:
+      - targets: ['nginx:80']
+        labels:
+          service: nginx
+          role: gateway
+          version: '1.25'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    metrics_path: /nginx_status
+    scheme: http
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ---------------------------------------------------------------
+  # Grafana
+  # ---------------------------------------------------------------
+  - job_name: 'sentinel-grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          service: grafana
+          role: observability
+          version: '10.2.0'
+    scrape_interval: 30s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    scheme: http
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ---------------------------------------------------------------
+  # Docker Daemon Metrics (if enabled)
+  # ---------------------------------------------------------------
+  - job_name: 'docker'
+    static_configs:
+      - targets: []
+        # - 'host.docker.internal:9323'  # Uncomment if dockerd exposes metrics
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # ---------------------------------------------------------------
+  # Node Exporter (host metrics - optional)
+  # ---------------------------------------------------------------
+  - job_name: 'node'
+    static_configs:
+      - targets: []
+        # - 'node-exporter:9100'  # Uncomment if node-exporter is running
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # ---------------------------------------------------------------
+  # GPU Metrics (NVIDIA DCGM - optional)
+  # ---------------------------------------------------------------
+  - job_name: 'gpu'
+    static_configs:
+      - targets: []
+        # - 'dcgm-exporter:9400'  # Uncomment for NVIDIA GPU metrics
+    scrape_interval: 15s
+    metrics_path: /metrics

@@ -1,0 +1,468 @@
+# YouTube Sentinel - Production Docker Compose
+# ============================================
+# Orchestrates the full Sentinel stack:
+#   - Nginx (WASM UI + Reverse Proxy)
+#   - Go API Service (REST/gRPC Gateway)
+#   - Rust Analysis Engine (GPU-accelerated)
+#   - Go Background Workers
+#   - Redis (Job Queue + Cache)
+#   - Prometheus (Metrics)
+#   - Grafana (Observability)
+#
+# Usage:
+#   docker-compose -f docker/docker-compose.yml up -d
+#   docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+#
+# Version: 1.0.0
+
+version: "3.9"
+
+x-logging-defaults: &logging-defaults
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "5"
+    labels: "service,environment"
+    tag: "{{.ImageName}}|{{.Name}}|{{.ImageFullID}}|{{.FullID}}"
+
+x-restart-policy: &restart-policy
+  restart_policy:
+    condition: unless-stopped
+    delay: 5s
+    max_attempts: 3
+    window: 120s
+
+x-deploy-defaults: &deploy-defaults
+  <<: *restart-policy
+  resources:
+    limits:
+      memory: 1G
+      cpus: "1.0"
+    reservations:
+      memory: 128M
+      cpus: "0.25"
+
+networks:
+  sentinel:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+    labels:
+      - "com.youtube-sentinel.network=true"
+  monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
+    labels:
+      - "com.youtube-sentinel.monitoring=true"
+
+volumes:
+  redis-data:
+    driver: local
+    labels:
+      - "com.youtube-sentinel.volume=redis"
+  video-uploads:
+    driver: local
+    labels:
+      - "com.youtube-sentinel.volume=uploads"
+  model-cache:
+    driver: local
+    labels:
+      - "com.youtube-sentinel.volume=models"
+  prometheus-data:
+    driver: local
+    labels:
+      - "com.youtube-sentinel.volume=prometheus"
+  grafana-data:
+    driver: local
+    labels:
+      - "com.youtube-sentinel.volume=grafana"
+
+services:
+  # ---------------------------------------------------------------
+  # Nginx - Edge Gateway
+  # Serves WASM UI static files and reverse-proxies to backend
+  # ---------------------------------------------------------------
+  nginx:
+    container_name: sentinel-nginx
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../web/pkg:/usr/share/nginx/html/wasm:ro
+      - ../web/static:/usr/share/nginx/html/static:ro
+      - ../web/index.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      - sentinel
+      - monitoring
+    deploy:
+      <<: *deploy-defaults
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+        reservations:
+          memory: 32M
+          cpus: "0.10"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging-defaults
+    labels:
+      - "traefik.enable=false"
+      - "com.youtube-sentinel.service=nginx"
+
+  # ---------------------------------------------------------------
+  # API - Go REST/gRPC Gateway
+  # Entry point for all client requests, authentication, routing
+  # ---------------------------------------------------------------
+  api:
+    container_name: sentinel-api
+    build:
+      context: ..
+      dockerfile: docker/api/Dockerfile
+      target: production
+      args:
+        - CGO_ENABLED=0
+        - GOOS=linux
+        - GOARCH=amd64
+    ports:
+      - "8080:8080"
+    environment:
+      - SENTINEL_ENV=production
+      - SENTINEL_LOG_LEVEL=info
+      - SENTINEL_LOG_FORMAT=json
+      - SENTINEL_HTTP_ADDR=0.0.0.0:8080
+      - SENTINEL_GRPC_ADDR=0.0.0.0:9090
+      - SENTINEL_REDIS_ADDR=redis:6379
+      - SENTINEL_REDIS_POOL_SIZE=20
+      - SENTINEL_ANALYSIS_GRPC_ADDR=analysis:50051
+      - SENTINEL_ANALYSIS_TIMEOUT=60s
+      - SENTINEL_MAX_UPLOAD_SIZE=500MB
+      - SENTINEL_UPLOAD_DIR=/uploads
+      - SENTINEL_JWT_SECRET=${JWT_SECRET:-changeme}
+      - SENTINEL_RATE_LIMIT_RPS=100
+      - SENTINEL_RATE_LIMIT_BURST=150
+      - SENTINEL_DB_DSN=${DB_DSN:-}
+      - SENTINEL_PROMETHEUS_ADDR=0.0.0.0:8081
+      - SENTINEL_TRACING_ENABLED=true
+      - SENTINEL_TRACING_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      redis:
+        condition: service_healthy
+      analysis:
+        condition: service_healthy
+    volumes:
+      - video-uploads:/uploads
+    networks:
+      - sentinel
+      - monitoring
+    deploy:
+      <<: *deploy-defaults
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+        reservations:
+          memory: 64M
+          cpus: "0.25"
+    healthcheck:
+      test: ["CMD", "/api-server", "-health-check"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging-defaults
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=50m
+    labels:
+      - "com.youtube-sentinel.service=api"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8081"
+      - "prometheus.io/path=/metrics"
+
+  # ---------------------------------------------------------------
+  # Analysis - Rust gRPC Service
+  # GPU-accelerated video analysis engine with ML inference
+  # ---------------------------------------------------------------
+  analysis:
+    container_name: sentinel-analysis
+    build:
+      context: ..
+      dockerfile: docker/analysis/Dockerfile
+      target: production
+      args:
+        - RUSTFLAGS=-C target-cpu=sandybridge -C opt-level=3
+        - CARGO_NET_RETRY=10
+    ports:
+      - "50051:50051"
+      - "8082:8082"
+    environment:
+      - SENTINEL_ENV=production
+      - SENTINEL_LOG_LEVEL=info
+      - SENTINEL_GRPC_ADDR=0.0.0.0:50051
+      - SENTINEL_METRICS_ADDR=0.0.0.0:8082
+      - SENTINEL_MODEL_PATH=/models
+      - SENTINEL_MODEL_CACHE_SIZE=2GB
+      - SENTINEL_VULKAN_DEVICE_INDEX=0
+      - SENTINEL_VULKAN_VALIDATION=false
+      - SENTINEL_MAX_CONCURRENT_JOBS=4
+      - SENTINEL_MAX_VIDEO_DURATION=3600
+      - SENTINEL_SUPPORTED_FORMATS=mp4,webm,mov,avi,mkv
+      - SENTINEL_SEGMENT_DURATION=10
+      - SENTINEL_GPU_MEMORY_FRACTION=0.8
+      - RUST_BACKTRACE=1
+      - RUST_LOG=info
+    volumes:
+      - video-uploads:/uploads:ro
+      - model-cache:/models
+    networks:
+      - sentinel
+      - monitoring
+    deploy:
+      <<: *restart-policy
+      resources:
+        limits:
+          memory: 8G
+          cpus: "4.0"
+        reservations:
+          memory: 2G
+          cpus: "1.0"
+          # GPU reservation for NVIDIA
+          # devices:
+          #   - driver: nvidia
+          #     count: 1
+          #     capabilities: [gpu]
+    runtime: nvidia
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *logging-defaults
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.youtube-sentinel.service=analysis"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8082"
+      - "prometheus.io/path=/metrics"
+
+  # ---------------------------------------------------------------
+  # Worker - Go Background Workers
+  # Processes async jobs: downloads, notifications, exports
+  # ---------------------------------------------------------------
+  worker:
+    container_name: sentinel-worker
+    build:
+      context: ..
+      dockerfile: docker/worker/Dockerfile
+      target: production
+      args:
+        - CGO_ENABLED=0
+        - GOOS=linux
+        - GOARCH=amd64
+    environment:
+      - SENTINEL_ENV=production
+      - SENTINEL_LOG_LEVEL=info
+      - SENTINEL_LOG_FORMAT=json
+      - SENTINEL_REDIS_ADDR=redis:6379
+      - SENTINEL_REDIS_POOL_SIZE=10
+      - SENTINEL_ANALYSIS_GRPC_ADDR=analysis:50051
+      - SENTINEL_ANALYSIS_TIMEOUT=300s
+      - SENTINEL_WORKER_CONCURRENCY=5
+      - SENTINEL_WORKER_QUEUES=analysis,download,notify,export
+      - SENTINEL_WORKER_POLL_INTERVAL=1s
+      - SENTINEL_MAX_RETRIES=3
+      - SENTINEL_RETRY_BACKOFF=exponential
+      - SENTINEL_SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTINEL_PROMETHEUS_ADDR=0.0.0.0:8083
+    depends_on:
+      redis:
+        condition: service_healthy
+      analysis:
+        condition: service_healthy
+    networks:
+      - sentinel
+      - monitoring
+    deploy:
+      <<: *deploy-defaults
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+        reservations:
+          memory: 64M
+          cpus: "0.25"
+    healthcheck:
+      test: ["CMD", "/worker-server", "-health-check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging-defaults
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=50m
+    labels:
+      - "com.youtube-sentinel.service=worker"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8083"
+      - "prometheus.io/path=/metrics"
+
+  # ---------------------------------------------------------------
+  # Redis - Job Queue & Cache
+  # ---------------------------------------------------------------
+  redis:
+    container_name: sentinel-redis
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --requirepass ${REDIS_PASSWORD:-sentinel}
+      --protected-mode yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - sentinel
+      - monitoring
+    deploy:
+      <<: *deploy-defaults
+      resources:
+        limits:
+          memory: 768M
+          cpus: "0.50"
+        reservations:
+          memory: 128M
+          cpus: "0.10"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    logging: *logging-defaults
+    sysctls:
+      - net.core.somaxconn=65535
+    labels:
+      - "com.youtube-sentinel.service=redis"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=6379"
+
+  # ---------------------------------------------------------------
+  # Prometheus - Metrics Collection
+  # ---------------------------------------------------------------
+  prometheus:
+    container_name: sentinel-prometheus
+    image: prom/prometheus:v2.48.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--storage.tsdb.retention.size=10GB"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+      - "--log.level=info"
+      - "--log.format=json"
+    networks:
+      - monitoring
+    deploy:
+      <<: *deploy-defaults
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *logging-defaults
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.youtube-sentinel.service=prometheus"
+
+  # ---------------------------------------------------------------
+  # Grafana - Observability Dashboards
+  # ---------------------------------------------------------------
+  grafana:
+    container_name: sentinel-grafana
+    image: grafana/grafana:10.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_LOG_MODE=console
+      - GF_LOG_LEVEL=info
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/sentinel.json
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    deploy:
+      <<: *deploy-defaults
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+        reservations:
+          memory: 64M
+          cpus: "0.10"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *logging-defaults
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.youtube-sentinel.service=grafana"
